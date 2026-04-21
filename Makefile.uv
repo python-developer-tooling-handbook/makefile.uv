@@ -6,10 +6,16 @@
 # to preserve non-zero exit codes through the pipe. pipefail is a bash-ism;
 # dash (Ubuntu's /bin/sh) doesn't support it. Upgrade SHELL to /bin/bash
 # only when LOG_DIR is in use, so projects that don't use the feature
-# don't get their recipe shell changed out from under them.
+# don't get their recipe shell changed out from under them. If the user
+# has explicitly chosen a dash-like shell AND opted into LOG_DIR, fail
+# early with a clear message instead of letting the recipe produce a
+# cryptic `set: Illegal option -o pipefail`.
 ifneq ($(LOG_DIR),)
 ifeq ($(SHELL),/bin/sh)
 SHELL := /bin/bash
+endif
+ifneq ($(findstring dash,$(SHELL)),)
+$(error Makefile.uv: LOG_DIR requires a shell with `set -o pipefail` support (bash, zsh, ksh). SHELL=$(SHELL) looks like dash. Unset LOG_DIR or set SHELL to a bash-compatible shell before the include.)
 endif
 endif
 
@@ -82,22 +88,33 @@ format:
 typecheck:
 	uv run $(UV_RUN_FLAGS) $(TYPECHECK)
 
-# `clean` has to defend against hostile variable values — an accidental
-# UV_VENV_PREFIX='' would expand `rm -rf $(UV_VENV_PREFIX)*` into `rm -rf *`
-# (wipes cwd), and LOG_DIR='/' would sweep the root. Guard both, use `--`
-# to stop rm from interpreting any glob match as a flag, and quote every
-# path-like variable.
+# `clean` has to defend against hostile or mistaken variable values. Both
+# UV_VENV_PREFIX and LOG_DIR flow directly into `rm -rf`, so we validate
+# them against a conservative allowlist before globbing:
+#   - non-empty (UV_VENV_PREFIX only; empty LOG_DIR just means "no logs")
+#   - not absolute (reject /..., [A-Za-z]:..., \...)
+#   - not `.` or `..`
+#   - does not contain `..` anywhere
+#   - characters restricted to [A-Za-z0-9._/-]  (blocks $ ` spaces quotes)
+# POSIX character class `[!...]` is used rather than bash-only `[^...]`
+# so the recipe works even when SHELL is dash.
 clean:
-	@if [ -z "$(UV_VENV_PREFIX)" ]; then \
-	  echo "clean: UV_VENV_PREFIX is empty — refusing to glob every file in cwd." >&2; \
-	  exit 1; \
-	fi
-	@case "$(LOG_DIR)" in \
-	  "") ;; \
-	  /*|[A-Za-z]:*|\\*) \
-	    echo "clean: LOG_DIR ('$(LOG_DIR)') is absolute — refusing." >&2; \
-	    exit 1 ;; \
-	esac
+	@bad() { echo "clean: $$1" >&2; exit 1; }; \
+	validate() { \
+	    name=$$1; val=$$2; allow_empty=$$3; \
+	    if [ -z "$$val" ]; then \
+	        [ "$$allow_empty" = "yes" ] && return 0; \
+	        bad "$$name is empty — refusing (would glob cwd)"; \
+	    fi; \
+	    case "$$val" in \
+	        /*|[A-Za-z]:*|\\*)       bad "$$name ('$$val') is absolute" ;; \
+	        "."|"..")                 bad "$$name ('$$val') refers to cwd/parent" ;; \
+	        *..*)                     bad "$$name ('$$val') contains '..'" ;; \
+	        *[!A-Za-z0-9._/-]*)       bad "$$name ('$$val') contains characters outside [A-Za-z0-9._/-]" ;; \
+	    esac; \
+	}; \
+	validate UV_VENV_PREFIX "$(UV_VENV_PREFIX)" no; \
+	validate LOG_DIR "$(LOG_DIR)" yes
 	rm -rf -- .venv "$(UV_VENV_PREFIX)"* dist *.egg-info .pytest_cache
 	@if [ -n "$(LOG_DIR)" ]; then rm -rf -- "$(LOG_DIR)"; fi
 

@@ -12,7 +12,7 @@ Inspired by [sio/Makefile.venv](https://github.com/sio/Makefile.venv).
 From your project root, pull a tagged version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.2.3/Makefile.uv -o Makefile.uv
+curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.2.4/Makefile.uv -o Makefile.uv
 ```
 
 Then, in your project's `Makefile`:
@@ -168,9 +168,11 @@ env's output untangled, while `make clean` sweeps them.
   then refuse to pattern-match them. `Makefile.uv` handles its own `.PHONY`
   internally; leave the generated `test-py<VER>` and `test-cell-py<VER>-<VAR>`
   names out of yours.
-- **Native-Windows `cmd`/`powershell` aren't supported.** All recipes run in
-  Bash. On Windows, use Git Bash (ships with Git for Windows) or WSL; `make`
-  itself can be installed via `choco install make`.
+- **Native-Windows `cmd`/`powershell` aren't supported.** The matrix cell
+  recipe uses POSIX-shell tools (`cut`, positional-parameter interpolation);
+  none of that works in `cmd` or `powershell`. On Windows, use Git Bash
+  (ships with Git for Windows) or WSL; `make` itself can be installed via
+  `choco install make`.
 
 ## Examples
 

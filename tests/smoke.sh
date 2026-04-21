@@ -92,6 +92,24 @@ run_example() {
         if make LOG_DIR="$abs_logdir" clean >/dev/null 2>&1; then
             die "$name: clean should have rejected absolute LOG_DIR ('$abs_logdir')"
         fi
+
+        log "$name: clean refuses path-traversal UV_VENV_PREFIX"
+        for bad_prefix in '.' '..' '../foo' 'foo/../bar' '/abs'; do
+            if make UV_VENV_PREFIX="$bad_prefix" clean >/dev/null 2>&1; then
+                die "$name: clean should have rejected UV_VENV_PREFIX='$bad_prefix'"
+            fi
+        done
+
+        log "$name: clean refuses shell-metachar UV_VENV_PREFIX"
+        # Use values that survive Make's own variable expansion literally.
+        # `$foo` on the command line is treated by Make as `$(f)oo` — never
+        # reaches the recipe — so that isn't a realistic threat vector.
+        # These, however, pass through Make untouched:
+        for bad_prefix in '.venv;rm' '.venv foo' '.venv"x'; do
+            if make UV_VENV_PREFIX="$bad_prefix" clean >/dev/null 2>&1; then
+                die "$name: clean should have rejected UV_VENV_PREFIX='$bad_prefix'"
+            fi
+        done
     fi
 
     # Guard: bash 3.2 (macOS default) treats empty-array expansion as unbound
