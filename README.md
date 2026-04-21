@@ -11,7 +11,7 @@ Inspired by [sio/Makefile.venv](https://github.com/sio/Makefile.venv).
 From your project root, pull a tagged version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.1.0/Makefile.uv -o Makefile.uv
+curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.1.1/Makefile.uv -o Makefile.uv
 ```
 
 Then, in your project's `Makefile`:
