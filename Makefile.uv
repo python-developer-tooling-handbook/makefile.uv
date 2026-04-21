@@ -94,7 +94,9 @@ clean:
 	fi
 	@case "$(LOG_DIR)" in \
 	  "") ;; \
-	  /*) echo "clean: LOG_DIR ('$(LOG_DIR)') is absolute — refusing." >&2; exit 1 ;; \
+	  /*|[A-Za-z]:*|\\*) \
+	    echo "clean: LOG_DIR ('$(LOG_DIR)') is absolute — refusing." >&2; \
+	    exit 1 ;; \
 	esac
 	rm -rf -- .venv "$(UV_VENV_PREFIX)"* dist *.egg-info .pytest_cache
 	@if [ -n "$(LOG_DIR)" ]; then rm -rf -- "$(LOG_DIR)"; fi

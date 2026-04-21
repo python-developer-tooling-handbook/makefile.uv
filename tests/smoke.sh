@@ -81,8 +81,16 @@ run_example() {
         fi
 
         log "$name: clean refuses absolute LOG_DIR"
-        if make LOG_DIR=/tmp/nope clean >/dev/null 2>&1; then
-            die "$name: clean should have rejected absolute LOG_DIR"
+        # Pick an absolute path the current OS won't mangle. Git Bash
+        # under MSYS/MINGW rewrites plain POSIX paths like /tmp/nope to
+        # a Windows path before Make sees them, so on Windows we pass a
+        # drive-letter path directly.
+        case "$(uname -s)" in
+            MINGW*|MSYS*|CYGWIN*) abs_logdir='C:/nope' ;;
+            *)                    abs_logdir='/tmp/nope' ;;
+        esac
+        if make LOG_DIR="$abs_logdir" clean >/dev/null 2>&1; then
+            die "$name: clean should have rejected absolute LOG_DIR ('$abs_logdir')"
         fi
     fi
 
