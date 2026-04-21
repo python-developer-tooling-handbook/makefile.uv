@@ -14,8 +14,10 @@ ifneq ($(LOG_DIR),)
 ifeq ($(SHELL),/bin/sh)
 SHELL := /bin/bash
 endif
-ifneq ($(findstring dash,$(SHELL)),)
-$(error Makefile.uv: LOG_DIR requires a shell with `set -o pipefail` support (bash, zsh, ksh). SHELL=$(SHELL) looks like dash. Unset LOG_DIR or set SHELL to a bash-compatible shell before the include.)
+# Basename-match so we don't false-positive on paths like
+# /home/dash-user/bin/bash or /opt/bash-from-dash/bash.
+ifeq ($(notdir $(SHELL)),dash)
+$(error Makefile.uv: LOG_DIR requires a shell with `set -o pipefail` support (bash, zsh, ksh). SHELL=$(SHELL) is dash. Unset LOG_DIR or set SHELL to a bash-compatible shell before the include.)
 endif
 endif
 
@@ -99,7 +101,7 @@ typecheck:
 # POSIX character class `[!...]` is used rather than bash-only `[^...]`
 # so the recipe works even when SHELL is dash.
 clean:
-	@bad() { echo "clean: $$1" >&2; exit 1; }; \
+	@bad() { printf 'clean: %s\n' "$$1" >&2; exit 1; }; \
 	validate() { \
 	    name=$$1; val=$$2; allow_empty=$$3; \
 	    if [ -z "$$val" ]; then \
