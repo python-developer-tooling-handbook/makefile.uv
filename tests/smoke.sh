@@ -45,10 +45,14 @@ run_example() {
     log "$name: make test-all"
     make test-all
 
-    for tgt in "${extra_targets[@]}"; do
-        log "$name: make $tgt"
-        make "$tgt"
-    done
+    # Guard: bash 3.2 (macOS default) treats empty-array expansion as unbound
+    # under `set -u`.
+    if [ "${#extra_targets[@]}" -gt 0 ]; then
+        for tgt in "${extra_targets[@]}"; do
+            log "$name: make $tgt"
+            make "$tgt"
+        done
+    fi
 
     log "$name: make clean"
     make clean
