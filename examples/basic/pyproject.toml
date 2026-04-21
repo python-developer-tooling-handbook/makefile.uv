@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "ruff>=0.8", "mypy>=1.10"]
 
 [build-system]
 requires = ["hatchling"]
@@ -14,3 +14,11 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.sdist]
 exclude = [".venv-*"]
+
+[tool.ruff]
+# Per-version venvs live at .venv-<VER> and aren't covered by ruff's default
+# .venv exclude.
+extend-exclude = [".venv-*"]
+
+[tool.mypy]
+files = ["src", "tests"]

@@ -45,6 +45,19 @@ run_example() {
     log "$name: make test-all"
     make test-all
 
+    if [ "$name" = "basic" ]; then
+        log "$name: make lint / format / typecheck"
+        make lint
+        make format
+        make typecheck
+
+        log "$name: LOG_DIR captures per-env output"
+        make clean
+        make LOG_DIR=.logs test-py3.12
+        [ -f .logs/py3.12.log ] || die "$name: LOG_DIR not written"
+        grep -q "passed" .logs/py3.12.log || die "$name: LOG_DIR has no test output"
+    fi
+
     # Guard: bash 3.2 (macOS default) treats empty-array expansion as unbound
     # under `set -u`.
     if [ "${#extra_targets[@]}" -gt 0 ]; then

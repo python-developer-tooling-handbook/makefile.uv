@@ -2,14 +2,31 @@
 # Homepage: https://github.com/python-developer-tooling-handbook/makefile.uv
 # License: MIT
 
+# Use bash so `set -o pipefail` works in the LOG_DIR tee'd recipes below.
+SHELL := /bin/bash
+
 PYTHON_VERSIONS ?= 3.11 3.12 3.13 3.14
 DEP_VARIANTS    ?=
+DEP_MODE        ?= extra
 PYTEST          ?= pytest
+
+# LINT is a GNU Make built-in (`lint`), so a plain `?=` would see it as
+# already defined and skip our default. Force-set our default only when
+# LINT's origin is the built-in; fall through to ?= otherwise so user
+# overrides (origin = file / command line / environment) still win.
+ifeq ($(origin LINT),default)
+LINT := ruff check
+endif
+LINT            ?= ruff check
+FORMAT          ?= ruff format
+TYPECHECK       ?= mypy
+
 UV_VENV_PREFIX  ?= .venv-
 UV_SYNC_FLAGS   ?=
 UV_RUN_FLAGS    ?=
+LOG_DIR         ?=
 
-.PHONY: sync test test-all matrix clean help
+.PHONY: sync test test-all matrix lint format typecheck clean help
 
 sync:
 	uv sync $(UV_SYNC_FLAGS)
@@ -20,23 +37,39 @@ test:
 # test-py<VER>: run pytest against a specific Python in its own venv.
 # Stem is the Python version (e.g., "3.12"). UV_RUN_FLAGS lets callers
 # forward --extra/--group/--with to the implicit sync `uv run` does when
-# the version venv doesn't yet exist.
+# the version venv doesn't yet exist. LOG_DIR, if set, also tees output
+# to $(LOG_DIR)/py<VER>.log for post-hoc inspection.
 test-py%:
-	UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(UV_RUN_FLAGS) $(PYTEST)
+	@if [ -n "$(LOG_DIR)" ]; then mkdir -p $(LOG_DIR); fi
+	set -o pipefail; UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee $(LOG_DIR)/py$*.log)
 
 test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 
 # 2-axis matrix: Python × DEP_VARIANTS. No-op when DEP_VARIANTS is empty.
+# DEP_MODE chooses how variants are applied to `uv run`: "extra" (default)
+# forwards --extra NAME (PEP 621 [project.optional-dependencies]); "group"
+# forwards --group NAME (PEP 735 [dependency-groups]).
 matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-py$(py)-$(var)))
 
 # test-cell-py<VER>-<VAR>: one cell of the matrix. Stem is "<VER>-<VAR>".
 test-cell-py%:
+	@if [ -n "$(LOG_DIR)" ]; then mkdir -p $(LOG_DIR); fi
 	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2); \
+	  set -o pipefail; \
 	  UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)cell-$* \
-	  uv run --python $$PY --extra $$VAR $(UV_RUN_FLAGS) $(PYTEST)
+	  uv run --python $$PY --$(DEP_MODE) $$VAR $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee $(LOG_DIR)/cell-$*.log)
+
+lint:
+	uv run $(UV_RUN_FLAGS) $(LINT)
+
+format:
+	uv run $(UV_RUN_FLAGS) $(FORMAT)
+
+typecheck:
+	uv run $(UV_RUN_FLAGS) $(TYPECHECK)
 
 clean:
-	rm -rf .venv $(UV_VENV_PREFIX)* dist *.egg-info .pytest_cache
+	rm -rf .venv $(UV_VENV_PREFIX)* dist *.egg-info .pytest_cache $(LOG_DIR)
 
 help:
 	@echo "Makefile.uv targets:"
@@ -46,13 +79,21 @@ help:
 	@echo "  test-all                test-py<VER> for each version in PYTHON_VERSIONS"
 	@echo "  matrix                  Python × DEP_VARIANTS cells (empty DEP_VARIANTS = no-op)"
 	@echo "  test-cell-py<VER>-<VAR> run one matrix cell"
-	@echo "  clean                   remove venvs and build artifacts"
+	@echo "  lint                    uv run \$$(LINT)"
+	@echo "  format                  uv run \$$(FORMAT)"
+	@echo "  typecheck               uv run \$$(TYPECHECK)"
+	@echo "  clean                   remove venvs, build artifacts, and \$$(LOG_DIR)"
 	@echo "  help                    this message"
 	@echo ""
 	@echo "Variables (current values; set before 'include Makefile.uv' to override):"
 	@echo "  PYTHON_VERSIONS = $(PYTHON_VERSIONS)"
 	@echo "  DEP_VARIANTS    = $(DEP_VARIANTS)"
+	@echo "  DEP_MODE        = $(DEP_MODE)"
 	@echo "  PYTEST          = $(PYTEST)"
+	@echo "  LINT            = $(LINT)"
+	@echo "  FORMAT          = $(FORMAT)"
+	@echo "  TYPECHECK       = $(TYPECHECK)"
 	@echo "  UV_VENV_PREFIX  = $(UV_VENV_PREFIX)"
 	@echo "  UV_SYNC_FLAGS   = $(UV_SYNC_FLAGS)"
 	@echo "  UV_RUN_FLAGS    = $(UV_RUN_FLAGS)"
+	@echo "  LOG_DIR         = $(LOG_DIR)"
