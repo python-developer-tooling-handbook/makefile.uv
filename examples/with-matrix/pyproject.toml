@@ -9,8 +9,8 @@ dependencies = ["packaging"]
 # Two mutually incompatible versions of the same dep — the thing a matrix
 # is for. Swap in pandas<2 / pandas>=2, numpy<2 / numpy>=2, etc. in a real
 # project.
-p23 = ["packaging<24"]
-p24 = ["packaging>=24"]
+pkg-23 = ["packaging<24"]
+pkg-24 = ["packaging>=24"]
 
 [dependency-groups]
 dev = ["pytest>=8"]
@@ -18,7 +18,7 @@ dev = ["pytest>=8"]
 [tool.uv]
 # Declare the conflict so uv refuses to resolve both extras at once.
 conflicts = [
-    [{extra = "p23"}, {extra = "p24"}],
+    [{extra = "pkg-23"}, {extra = "pkg-24"}],
 ]
 
 [build-system]

@@ -52,9 +52,11 @@ test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-py$(py)-$(var)))
 
 # test-cell-py<VER>-<VAR>: one cell of the matrix. Stem is "<VER>-<VAR>".
+# -f2- (not -f2) so variant names may themselves contain dashes, e.g.
+# "with-chardet" / "django-5".
 test-cell-py%:
 	@if [ -n "$(LOG_DIR)" ]; then mkdir -p $(LOG_DIR); fi
-	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2); \
+	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2-); \
 	  set -o pipefail; \
 	  UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)cell-$* \
 	  uv run --python $$PY --$(DEP_MODE) $$VAR $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee $(LOG_DIR)/cell-$*.log)

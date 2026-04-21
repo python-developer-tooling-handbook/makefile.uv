@@ -69,15 +69,18 @@ run_example() {
 
     if [ "$name" = "with-matrix" ]; then
         log "$name: assert matrix cells resolved to distinct packaging versions"
-        v23=$(.venv-cell-3.12-p23/bin/python -c 'import packaging; print(packaging.__version__)')
-        v24=$(.venv-cell-3.12-p24/bin/python -c 'import packaging; print(packaging.__version__)')
-        echo "  p23 cell: packaging==$v23"
-        echo "  p24 cell: packaging==$v24"
+        # Variant names contain dashes (pkg-23, pkg-24) to regression-test the
+        # cell stem parser — `cut -d- -f2-` has to take everything after the
+        # first dash, not just the second field.
+        v23=$(.venv-cell-3.12-pkg-23/bin/python -c 'import packaging; print(packaging.__version__)')
+        v24=$(.venv-cell-3.12-pkg-24/bin/python -c 'import packaging; print(packaging.__version__)')
+        echo "  pkg-23 cell: packaging==$v23"
+        echo "  pkg-24 cell: packaging==$v24"
         [ "$v23" != "$v24" ] || die "matrix cells resolved to the same packaging version ($v23) — the conflict block is not working"
         maj23=$(echo "$v23" | cut -d. -f1)
         maj24=$(echo "$v24" | cut -d. -f1)
-        [ "$maj23" -lt 24 ] || die "p23 major is $maj23, expected <24"
-        [ "$maj24" -ge 24 ] || die "p24 major is $maj24, expected >=24"
+        [ "$maj23" -lt 24 ] || die "pkg-23 major is $maj23, expected <24"
+        [ "$maj24" -ge 24 ] || die "pkg-24 major is $maj24, expected >=24"
     fi
 
     log "$name: make clean"
