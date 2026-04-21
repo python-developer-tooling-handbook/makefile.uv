@@ -3,6 +3,7 @@ name: test
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 jobs:
@@ -13,8 +14,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
       - name: smoke — basic example
         run: tests/smoke.sh basic
 
@@ -25,7 +26,26 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
       - name: smoke — with-matrix example
         run: tests/smoke.sh with-matrix
+
+  # Windows runs on tag push only. The matrix cell recipe uses `cut` and
+  # POSIX shell interpolation, so it needs Git Bash; windows-latest ships
+  # it via the Git for Windows install. We only exercise the basic example
+  # here — the matrix cells are the part most at risk on Windows, but
+  # installing make plus validating that path is slow enough that
+  # per-push is overkill.
+  windows:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v8
+      - name: Install GNU Make
+        run: choco install make -y
+        shell: pwsh
+      - name: smoke — basic example (Git Bash)
+        shell: bash
+        run: tests/smoke.sh basic

@@ -54,6 +54,19 @@ run_example() {
         done
     fi
 
+    if [ "$name" = "with-matrix" ]; then
+        log "$name: assert matrix cells resolved to distinct packaging versions"
+        v23=$(.venv-cell-3.12-p23/bin/python -c 'import packaging; print(packaging.__version__)')
+        v24=$(.venv-cell-3.12-p24/bin/python -c 'import packaging; print(packaging.__version__)')
+        echo "  p23 cell: packaging==$v23"
+        echo "  p24 cell: packaging==$v24"
+        [ "$v23" != "$v24" ] || die "matrix cells resolved to the same packaging version ($v23) — the conflict block is not working"
+        maj23=$(echo "$v23" | cut -d. -f1)
+        maj24=$(echo "$v24" | cut -d. -f1)
+        [ "$maj23" -lt 24 ] || die "p23 major is $maj23, expected <24"
+        [ "$maj24" -ge 24 ] || die "p24 major is $maj24, expected >=24"
+    fi
+
     log "$name: make clean"
     make clean
     [ ! -d .venv ] || die "$name: .venv still present after clean"
