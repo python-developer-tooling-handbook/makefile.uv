@@ -52,6 +52,7 @@ All variables are `?=` assignments. Override them *before* `include Makefile.uv`
 | `PYTEST` | `pytest` | Test command (swap in `pytest --tb=short`, etc.) |
 | `UV_VENV_PREFIX` | `.venv-` | Directory prefix for per-version venvs |
 | `UV_SYNC_FLAGS` | (empty) | Extra flags forwarded to `uv sync` |
+| `UV_RUN_FLAGS` | (empty) | Extra flags forwarded to every `uv run` (e.g. `--extra cli`, `--group test`, `--with ipython`) |
 
 ## Targets
 

@@ -7,6 +7,7 @@ DEP_VARIANTS    ?=
 PYTEST          ?= pytest
 UV_VENV_PREFIX  ?= .venv-
 UV_SYNC_FLAGS   ?=
+UV_RUN_FLAGS    ?=
 
 .PHONY: sync test test-all matrix clean help
 
@@ -14,12 +15,14 @@ sync:
 	uv sync $(UV_SYNC_FLAGS)
 
 test:
-	uv run $(PYTEST)
+	uv run $(UV_RUN_FLAGS) $(PYTEST)
 
 # test-py<VER>: run pytest against a specific Python in its own venv.
-# Stem is the Python version (e.g., "3.12").
+# Stem is the Python version (e.g., "3.12"). UV_RUN_FLAGS lets callers
+# forward --extra/--group/--with to the implicit sync `uv run` does when
+# the version venv doesn't yet exist.
 test-py%:
-	UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(PYTEST)
+	UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(UV_RUN_FLAGS) $(PYTEST)
 
 test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 
@@ -30,7 +33,7 @@ matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-
 test-cell-py%:
 	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2); \
 	  UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)cell-$* \
-	  uv run --python $$PY --extra $$VAR $(PYTEST)
+	  uv run --python $$PY --extra $$VAR $(UV_RUN_FLAGS) $(PYTEST)
 
 clean:
 	rm -rf .venv $(UV_VENV_PREFIX)* dist *.egg-info .pytest_cache
@@ -52,3 +55,4 @@ help:
 	@echo "  PYTEST          = $(PYTEST)"
 	@echo "  UV_VENV_PREFIX  = $(UV_VENV_PREFIX)"
 	@echo "  UV_SYNC_FLAGS   = $(UV_SYNC_FLAGS)"
+	@echo "  UV_RUN_FLAGS    = $(UV_RUN_FLAGS)"
