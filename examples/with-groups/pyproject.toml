@@ -1,0 +1,29 @@
+[project]
+name = "demo"
+version = "0.0.1"
+description = "Makefile.uv matrix example using PEP 735 dependency groups"
+requires-python = ">=3.11"
+dependencies = ["packaging"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+# PEP 735 groups instead of PEP 621 optional-dependencies. Pair with
+# DEP_MODE := group in the Makefile so matrix cells pass --group <name>
+# instead of --extra <name>. Groups are dev-only and don't leak into
+# `pip install demo[...]`.
+pkg-23 = ["packaging<24"]
+pkg-24 = ["packaging>=24"]
+
+[tool.uv]
+# Declare the conflict so uv refuses to resolve both groups at once.
+conflicts = [
+    [{group = "pkg-23"}, {group = "pkg-24"}],
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".venv-*"]

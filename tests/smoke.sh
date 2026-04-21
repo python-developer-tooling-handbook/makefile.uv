@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Smoke test: copies each example into a temp dir and exercises every target.
-# Usage: tests/smoke.sh [basic|with-matrix|all]  (default: all)
+# Usage: tests/smoke.sh [basic|with-matrix|with-groups|all]  (default: all)
 
 set -euo pipefail
 
@@ -9,6 +9,19 @@ WHICH="${1:-all}"
 
 log() { printf '\n\033[1;34m== %s ==\033[0m\n' "$*"; }
 die() { printf '\033[1;31mFAIL:\033[0m %s\n' "$*" >&2; exit 1; }
+
+# Locate the python binary inside a uv-created venv. Unix puts it at
+# bin/python; Windows (including under Git Bash) puts it at Scripts/python.exe.
+venv_python() {
+    local venv="$1"
+    if [ -x "$venv/bin/python" ]; then
+        echo "$venv/bin/python"
+    elif [ -x "$venv/Scripts/python.exe" ]; then
+        echo "$venv/Scripts/python.exe"
+    else
+        die "no python found in $venv"
+    fi
+}
 
 run_example() {
     local name="$1"; shift
@@ -45,6 +58,11 @@ run_example() {
     log "$name: make test-all"
     make test-all
 
+    log "$name: FORCE prereq — file named test-py3.12 must not block the target"
+    touch test-py3.12
+    make test-py3.12 > /dev/null
+    rm -f test-py3.12
+
     if [ "$name" = "basic" ]; then
         log "$name: make lint / format / typecheck"
         make lint
@@ -56,6 +74,16 @@ run_example() {
         make LOG_DIR=.logs test-py3.12
         [ -f .logs/py3.12.log ] || die "$name: LOG_DIR not written"
         grep -q "passed" .logs/py3.12.log || die "$name: LOG_DIR has no test output"
+
+        log "$name: clean refuses empty UV_VENV_PREFIX"
+        if make UV_VENV_PREFIX='' clean >/dev/null 2>&1; then
+            die "$name: clean should have rejected empty UV_VENV_PREFIX"
+        fi
+
+        log "$name: clean refuses absolute LOG_DIR"
+        if make LOG_DIR=/tmp/nope clean >/dev/null 2>&1; then
+            die "$name: clean should have rejected absolute LOG_DIR"
+        fi
     fi
 
     # Guard: bash 3.2 (macOS default) treats empty-array expansion as unbound
@@ -67,13 +95,16 @@ run_example() {
         done
     fi
 
-    if [ "$name" = "with-matrix" ]; then
+    if [ "$name" = "with-matrix" ] || [ "$name" = "with-groups" ]; then
         log "$name: assert matrix cells resolved to distinct packaging versions"
         # Variant names contain dashes (pkg-23, pkg-24) to regression-test the
         # cell stem parser — `cut -d- -f2-` has to take everything after the
-        # first dash, not just the second field.
-        v23=$(.venv-cell-3.12-pkg-23/bin/python -c 'import packaging; print(packaging.__version__)')
-        v24=$(.venv-cell-3.12-pkg-24/bin/python -c 'import packaging; print(packaging.__version__)')
+        # first dash, not just the second field. with-matrix exercises DEP_MODE=extra;
+        # with-groups exercises DEP_MODE=group over the same shape.
+        py23="$(venv_python .venv-cell-3.12-pkg-23)"
+        py24="$(venv_python .venv-cell-3.12-pkg-24)"
+        v23=$("$py23" -c 'import packaging; print(packaging.__version__)')
+        v24=$("$py24" -c 'import packaging; print(packaging.__version__)')
         echo "  pkg-23 cell: packaging==$v23"
         echo "  pkg-24 cell: packaging==$v24"
         [ "$v23" != "$v24" ] || die "matrix cells resolved to the same packaging version ($v23) — the conflict block is not working"
@@ -94,11 +125,13 @@ run_example() {
 case "$WHICH" in
     basic)       run_example basic ;;
     with-matrix) run_example with-matrix matrix ;;
+    with-groups) run_example with-groups matrix ;;
     all)
         run_example basic
         run_example with-matrix matrix
+        run_example with-groups matrix
         ;;
-    *) die "unknown target: $WHICH (expected: basic|with-matrix|all)" ;;
+    *) die "unknown target: $WHICH (expected: basic|with-matrix|with-groups|all)" ;;
 esac
 
 log "all smoke checks passed"

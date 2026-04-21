@@ -12,7 +12,7 @@ Inspired by [sio/Makefile.venv](https://github.com/sio/Makefile.venv).
 From your project root, pull a tagged version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.2.1/Makefile.uv -o Makefile.uv
+curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.2.2/Makefile.uv -o Makefile.uv
 ```
 
 Then, in your project's `Makefile`:
@@ -47,7 +47,10 @@ $ make help
 
 ## Variables
 
-All variables are `?=` assignments. Override them *before* `include Makefile.uv`.
+Override any variable *before* `include Makefile.uv` — in your Makefile, via
+`make VAR=…`, or in the environment. Most use `?=` so assignments stick on the
+first definition; `LINT` is special-cased so Makefile.uv's default wins over
+Make's built-in `LINT = lint` while still deferring to any user override.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -58,10 +61,10 @@ All variables are `?=` assignments. Override them *before* `include Makefile.uv`
 | `LINT` | `ruff check` | Lint command |
 | `FORMAT` | `ruff format` | Format command (modifies files; set to `ruff format --check` for CI) |
 | `TYPECHECK` | `mypy` | Type-check command (set to `ty check` to switch to ty) |
-| `UV_VENV_PREFIX` | `.venv-` | Directory prefix for per-version venvs |
+| `UV_VENV_PREFIX` | `.venv-` | Directory prefix for per-version venvs. Must be non-empty — `clean` refuses an empty value. |
 | `UV_SYNC_FLAGS` | (empty) | Extra flags forwarded to `uv sync` |
 | `UV_RUN_FLAGS` | (empty) | Extra flags forwarded to every `uv run` (e.g. `--extra cli`, `--group test`, `--with ipython`) |
-| `LOG_DIR` | (empty) | If set, `test-py<VER>` and `test-cell-py<VER>-<VAR>` tee output to `$(LOG_DIR)/py<VER>.log` / `cell-<VER>-<VAR>.log` |
+| `LOG_DIR` | (empty) | If set, `test-py<VER>` and `test-cell-py<VER>-<VAR>` tee output to `$(LOG_DIR)/py<VER>.log` / `cell-<VER>-<VAR>.log`. Must be relative — `clean` refuses absolute paths. |
 
 ## Targets
 
@@ -117,6 +120,11 @@ they fit "with feature X vs baseline" axes more naturally than extras do.
 [dependency-groups]
 with-chardet = ["chardet"]
 without-chardet = []
+
+[tool.uv]
+conflicts = [
+    [{group = "with-chardet"}, {group = "without-chardet"}],
+]
 ```
 
 ```makefile
@@ -160,24 +168,30 @@ env's output untangled, while `make clean` sweeps them.
   then refuse to pattern-match them. `Makefile.uv` handles its own `.PHONY`
   internally; leave the generated `test-py<VER>` and `test-cell-py<VER>-<VAR>`
   names out of yours.
-- **Windows native shells** can't parse the matrix cell recipe (it uses `cut`).
-  Use Git Bash or WSL. Plain `test-py<VER>` works everywhere.
+- **Native-Windows `cmd`/`powershell` aren't supported.** All recipes run in
+  Bash. On Windows, use Git Bash (ships with Git for Windows) or WSL; `make`
+  itself can be installed via `choco install make`.
 
 ## Examples
 
 - [`examples/basic/`](examples/basic/) — minimal project, single Python variant,
   dev group wired up for `lint`/`format`/`typecheck`.
 - [`examples/with-matrix/`](examples/with-matrix/) — two extras with a conflict
-  block, exercised via `make matrix`.
+  block, exercised via `make matrix` (`DEP_MODE = extra`, the default).
+- [`examples/with-groups/`](examples/with-groups/) — same shape using PEP 735
+  dependency groups and `DEP_MODE := group`.
 
 ## Compatibility
 
-- GNU Make 3.81+ (macOS's default `/usr/bin/make` works)
-- Bash is required for `set -o pipefail` used in the `LOG_DIR` tee'd recipes.
-  Both macOS and Linux runners satisfy this; `Makefile.uv` sets `SHELL := /bin/bash`
-  explicitly so the user's login shell doesn't matter.
-- uv 0.4+
-- macOS, Linux. Windows via Git Bash or WSL (see Gotchas).
+- GNU Make 3.81+ (macOS's default `/usr/bin/make` works).
+- Bash required. `Makefile.uv` sets `SHELL := /bin/bash` only when its origin
+  is Make's built-in default, so a user who has already chosen a shell (in
+  their Makefile, on the command line, or in the environment) keeps it. The
+  `LOG_DIR` tee'd recipes rely on `set -o pipefail`, so a non-Bash shell will
+  drop non-zero exit codes through the pipe.
+- uv 0.4+.
+- macOS, Linux, and Windows (via Git Bash or WSL). Tested in CI on
+  `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 
 ## Roadmap
 

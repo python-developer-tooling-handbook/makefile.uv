@@ -3,7 +3,13 @@
 # License: MIT
 
 # Use bash so `set -o pipefail` works in the LOG_DIR tee'd recipes below.
+# Only set SHELL when its origin is Make's built-in default — respect user
+# overrides declared before the include, on the command line, or in the
+# environment. If the user picks a shell without pipefail, LOG_DIR won't
+# preserve non-zero exit codes across pipes; that's their trade-off.
+ifeq ($(origin SHELL),default)
 SHELL := /bin/bash
+endif
 
 PYTHON_VERSIONS ?= 3.11 3.12 3.13 3.14
 DEP_VARIANTS    ?=
@@ -26,7 +32,11 @@ UV_SYNC_FLAGS   ?=
 UV_RUN_FLAGS    ?=
 LOG_DIR         ?=
 
-.PHONY: sync test test-all matrix lint format typecheck clean help
+# Force-rebuild helper. Empty phony target used as a prereq on pattern
+# rules (test-py%, test-cell-py%) so Make always runs the recipe — even
+# if a file or directory happens to share the target's name.
+.PHONY: sync test test-all matrix lint format typecheck clean help FORCE
+FORCE:
 
 sync:
 	uv sync $(UV_SYNC_FLAGS)
@@ -39,9 +49,9 @@ test:
 # forward --extra/--group/--with to the implicit sync `uv run` does when
 # the version venv doesn't yet exist. LOG_DIR, if set, also tees output
 # to $(LOG_DIR)/py<VER>.log for post-hoc inspection.
-test-py%:
-	@if [ -n "$(LOG_DIR)" ]; then mkdir -p $(LOG_DIR); fi
-	set -o pipefail; UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee $(LOG_DIR)/py$*.log)
+test-py%: FORCE
+	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
+	set -o pipefail; UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)$*" uv run --python "$*" $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee -- "$(LOG_DIR)/py$*.log")
 
 test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 
@@ -54,12 +64,12 @@ matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-
 # test-cell-py<VER>-<VAR>: one cell of the matrix. Stem is "<VER>-<VAR>".
 # -f2- (not -f2) so variant names may themselves contain dashes, e.g.
 # "with-chardet" / "django-5".
-test-cell-py%:
-	@if [ -n "$(LOG_DIR)" ]; then mkdir -p $(LOG_DIR); fi
-	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2-); \
+test-cell-py%: FORCE
+	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
+	@PY=$$(echo "$*" | cut -d- -f1); VAR=$$(echo "$*" | cut -d- -f2-); \
 	  set -o pipefail; \
-	  UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)cell-$* \
-	  uv run --python $$PY --$(DEP_MODE) $$VAR $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee $(LOG_DIR)/cell-$*.log)
+	  UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)cell-$*" \
+	  uv run --python "$$PY" --$(DEP_MODE) "$$VAR" $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee -- "$(LOG_DIR)/cell-$*.log")
 
 lint:
 	uv run $(UV_RUN_FLAGS) $(LINT)
@@ -70,32 +80,53 @@ format:
 typecheck:
 	uv run $(UV_RUN_FLAGS) $(TYPECHECK)
 
+# `clean` has to defend against hostile variable values — an accidental
+# UV_VENV_PREFIX='' would expand `rm -rf $(UV_VENV_PREFIX)*` into `rm -rf *`
+# (wipes cwd), and LOG_DIR='/' would sweep the root. Guard both, use `--`
+# to stop rm from interpreting any glob match as a flag, and quote every
+# path-like variable.
 clean:
-	rm -rf .venv $(UV_VENV_PREFIX)* dist *.egg-info .pytest_cache $(LOG_DIR)
+	@if [ -z "$(UV_VENV_PREFIX)" ]; then \
+	  echo "clean: UV_VENV_PREFIX is empty — refusing to glob every file in cwd." >&2; \
+	  exit 1; \
+	fi
+	@case "$(LOG_DIR)" in \
+	  "") ;; \
+	  /*) echo "clean: LOG_DIR ('$(LOG_DIR)') is absolute — refusing." >&2; exit 1 ;; \
+	esac
+	rm -rf -- .venv "$(UV_VENV_PREFIX)"* dist *.egg-info .pytest_cache
+	@if [ -n "$(LOG_DIR)" ]; then rm -rf -- "$(LOG_DIR)"; fi
+
+# Shell-quote a value for display: wrap in '...' and replace any embedded
+# single quote with '"'"' so arbitrary variable values (including ones
+# containing quotes, $, or backticks) render literally in `make help`.
+sq = '$(subst ','"'"',$(1))'
 
 help:
-	@echo "Makefile.uv targets:"
-	@echo "  sync                    uv sync \$$(UV_SYNC_FLAGS)"
-	@echo "  test                    uv run \$$(PYTEST)"
-	@echo "  test-py<VER>            run pytest on Python <VER> in a dedicated venv"
-	@echo "  test-all                test-py<VER> for each version in PYTHON_VERSIONS"
-	@echo "  matrix                  Python × DEP_VARIANTS cells (empty DEP_VARIANTS = no-op)"
-	@echo "  test-cell-py<VER>-<VAR> run one matrix cell"
-	@echo "  lint                    uv run \$$(LINT)"
-	@echo "  format                  uv run \$$(FORMAT)"
-	@echo "  typecheck               uv run \$$(TYPECHECK)"
-	@echo "  clean                   remove venvs, build artifacts, and \$$(LOG_DIR)"
-	@echo "  help                    this message"
-	@echo ""
-	@echo "Variables (current values; set before 'include Makefile.uv' to override):"
-	@echo "  PYTHON_VERSIONS = $(PYTHON_VERSIONS)"
-	@echo "  DEP_VARIANTS    = $(DEP_VARIANTS)"
-	@echo "  DEP_MODE        = $(DEP_MODE)"
-	@echo "  PYTEST          = $(PYTEST)"
-	@echo "  LINT            = $(LINT)"
-	@echo "  FORMAT          = $(FORMAT)"
-	@echo "  TYPECHECK       = $(TYPECHECK)"
-	@echo "  UV_VENV_PREFIX  = $(UV_VENV_PREFIX)"
-	@echo "  UV_SYNC_FLAGS   = $(UV_SYNC_FLAGS)"
-	@echo "  UV_RUN_FLAGS    = $(UV_RUN_FLAGS)"
-	@echo "  LOG_DIR         = $(LOG_DIR)"
+	@printf '%s\n' \
+	  'Makefile.uv targets:' \
+	  '  sync                    uv sync $$(UV_SYNC_FLAGS)' \
+	  '  test                    uv run $$(PYTEST)' \
+	  '  test-py<VER>            run pytest on Python <VER> in a dedicated venv' \
+	  '  test-all                test-py<VER> for each version in PYTHON_VERSIONS' \
+	  '  matrix                  Python × DEP_VARIANTS cells (empty DEP_VARIANTS = no-op)' \
+	  '  test-cell-py<VER>-<VAR> run one matrix cell' \
+	  '  lint                    uv run $$(LINT)' \
+	  '  format                  uv run $$(FORMAT)' \
+	  '  typecheck               uv run $$(TYPECHECK)' \
+	  '  clean                   remove venvs, build artifacts, and $$(LOG_DIR)' \
+	  '  help                    this message' \
+	  '' \
+	  "Variables (current values; set before 'include Makefile.uv' to override):"
+	@printf '  %-15s = %s\n' \
+	  'PYTHON_VERSIONS' $(call sq,$(PYTHON_VERSIONS)) \
+	  'DEP_VARIANTS'    $(call sq,$(DEP_VARIANTS)) \
+	  'DEP_MODE'        $(call sq,$(DEP_MODE)) \
+	  'PYTEST'          $(call sq,$(PYTEST)) \
+	  'LINT'            $(call sq,$(LINT)) \
+	  'FORMAT'          $(call sq,$(FORMAT)) \
+	  'TYPECHECK'       $(call sq,$(TYPECHECK)) \
+	  'UV_VENV_PREFIX'  $(call sq,$(UV_VENV_PREFIX)) \
+	  'UV_SYNC_FLAGS'   $(call sq,$(UV_SYNC_FLAGS)) \
+	  'UV_RUN_FLAGS'    $(call sq,$(UV_RUN_FLAGS)) \
+	  'LOG_DIR'         $(call sq,$(LOG_DIR))
