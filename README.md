@@ -184,11 +184,13 @@ env's output untangled, while `make clean` sweeps them.
 ## Compatibility
 
 - GNU Make 3.81+ (macOS's default `/usr/bin/make` works).
-- Bash required. `Makefile.uv` sets `SHELL := /bin/bash` only when its origin
-  is Make's built-in default, so a user who has already chosen a shell (in
-  their Makefile, on the command line, or in the environment) keeps it. The
-  `LOG_DIR` tee'd recipes rely on `set -o pipefail`, so a non-Bash shell will
-  drop non-zero exit codes through the pipe.
+- Bash is required only when `LOG_DIR` is in use. The `LOG_DIR` tee'd recipes
+  depend on `set -o pipefail` to preserve non-zero exit codes through the pipe;
+  dash (Ubuntu's `/bin/sh`) doesn't support that. `Makefile.uv` upgrades
+  `SHELL` to `/bin/bash` only when both `LOG_DIR` is set and `SHELL` is still
+  at the POSIX default `/bin/sh`; in any other configuration the host
+  project's shell is left alone. Without `LOG_DIR`, every recipe is plain
+  POSIX sh.
 - uv 0.4+.
 - macOS, Linux, and Windows (via Git Bash or WSL). Tested in CI on
   `ubuntu-latest`, `macos-latest`, and `windows-latest`.

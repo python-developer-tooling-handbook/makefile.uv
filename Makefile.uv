@@ -2,13 +2,15 @@
 # Homepage: https://github.com/python-developer-tooling-handbook/makefile.uv
 # License: MIT
 
-# Use bash so `set -o pipefail` works in the LOG_DIR tee'd recipes below.
-# Only set SHELL when its origin is Make's built-in default — respect user
-# overrides declared before the include, on the command line, or in the
-# environment. If the user picks a shell without pipefail, LOG_DIR won't
-# preserve non-zero exit codes across pipes; that's their trade-off.
-ifeq ($(origin SHELL),default)
+# LOG_DIR tees recipe output through `tee` and relies on `set -o pipefail`
+# to preserve non-zero exit codes through the pipe. pipefail is a bash-ism;
+# dash (Ubuntu's /bin/sh) doesn't support it. Upgrade SHELL to /bin/bash
+# only when LOG_DIR is in use, so projects that don't use the feature
+# don't get their recipe shell changed out from under them.
+ifneq ($(LOG_DIR),)
+ifeq ($(SHELL),/bin/sh)
 SHELL := /bin/bash
+endif
 endif
 
 PYTHON_VERSIONS ?= 3.11 3.12 3.13 3.14
@@ -51,7 +53,7 @@ test:
 # to $(LOG_DIR)/py<VER>.log for post-hoc inspection.
 test-py%: FORCE
 	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
-	set -o pipefail; UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)$*" uv run --python "$*" $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee -- "$(LOG_DIR)/py$*.log")
+	$(if $(LOG_DIR),set -o pipefail; )UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)$*" uv run --python "$*" $(UV_RUN_FLAGS) $(PYTEST)$(if $(LOG_DIR), 2>&1 | tee -- "$(LOG_DIR)/py$*.log")
 
 test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 
@@ -67,9 +69,9 @@ matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-
 test-cell-py%: FORCE
 	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
 	@PY=$$(echo "$*" | cut -d- -f1); VAR=$$(echo "$*" | cut -d- -f2-); \
-	  set -o pipefail; \
+	  $(if $(LOG_DIR),set -o pipefail; )\
 	  UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)cell-$*" \
-	  uv run --python "$$PY" --$(DEP_MODE) "$$VAR" $(UV_RUN_FLAGS) $(PYTEST) $(if $(LOG_DIR),2>&1 | tee -- "$(LOG_DIR)/cell-$*.log")
+	  uv run --python "$$PY" --$(DEP_MODE) "$$VAR" $(UV_RUN_FLAGS) $(PYTEST)$(if $(LOG_DIR), 2>&1 | tee -- "$(LOG_DIR)/cell-$*.log")
 
 lint:
 	uv run $(UV_RUN_FLAGS) $(LINT)
