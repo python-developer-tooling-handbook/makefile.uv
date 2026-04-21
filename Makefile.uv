@@ -1,0 +1,54 @@
+# Makefile.uv — reusable uv-backed test orchestration for Python projects.
+# Homepage: https://github.com/python-developer-tooling-handbook/makefile.uv
+# License: MIT
+
+PYTHON_VERSIONS ?= 3.11 3.12 3.13 3.14
+DEP_VARIANTS    ?=
+PYTEST          ?= pytest
+UV_VENV_PREFIX  ?= .venv-
+UV_SYNC_FLAGS   ?=
+
+.PHONY: sync test test-all matrix clean help
+
+sync:
+	uv sync $(UV_SYNC_FLAGS)
+
+test:
+	uv run $(PYTEST)
+
+# test-py<VER>: run pytest against a specific Python in its own venv.
+# Stem is the Python version (e.g., "3.12").
+test-py%:
+	UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)$* uv run --python $* $(PYTEST)
+
+test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
+
+# 2-axis matrix: Python × DEP_VARIANTS. No-op when DEP_VARIANTS is empty.
+matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-py$(py)-$(var)))
+
+# test-cell-py<VER>-<VAR>: one cell of the matrix. Stem is "<VER>-<VAR>".
+test-cell-py%:
+	@PY=$$(echo $* | cut -d- -f1); VAR=$$(echo $* | cut -d- -f2); \
+	  UV_PROJECT_ENVIRONMENT=$(UV_VENV_PREFIX)cell-$* \
+	  uv run --python $$PY --extra $$VAR $(PYTEST)
+
+clean:
+	rm -rf .venv $(UV_VENV_PREFIX)* dist *.egg-info .pytest_cache
+
+help:
+	@echo "Makefile.uv targets:"
+	@echo "  sync                    uv sync \$$(UV_SYNC_FLAGS)"
+	@echo "  test                    uv run \$$(PYTEST)"
+	@echo "  test-py<VER>            run pytest on Python <VER> in a dedicated venv"
+	@echo "  test-all                test-py<VER> for each version in PYTHON_VERSIONS"
+	@echo "  matrix                  Python × DEP_VARIANTS cells (empty DEP_VARIANTS = no-op)"
+	@echo "  test-cell-py<VER>-<VAR> run one matrix cell"
+	@echo "  clean                   remove venvs and build artifacts"
+	@echo "  help                    this message"
+	@echo ""
+	@echo "Variables (current values; set before 'include Makefile.uv' to override):"
+	@echo "  PYTHON_VERSIONS = $(PYTHON_VERSIONS)"
+	@echo "  DEP_VARIANTS    = $(DEP_VARIANTS)"
+	@echo "  PYTEST          = $(PYTEST)"
+	@echo "  UV_VENV_PREFIX  = $(UV_VENV_PREFIX)"
+	@echo "  UV_SYNC_FLAGS   = $(UV_SYNC_FLAGS)"

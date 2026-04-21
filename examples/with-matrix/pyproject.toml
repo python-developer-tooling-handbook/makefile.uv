@@ -1,0 +1,29 @@
+[project]
+name = "demo"
+version = "0.0.1"
+description = "Makefile.uv matrix example"
+requires-python = ">=3.11"
+dependencies = ["packaging"]
+
+[project.optional-dependencies]
+# Two mutually incompatible versions of the same dep — the thing a matrix
+# is for. Swap in pandas<2 / pandas>=2, numpy<2 / numpy>=2, etc. in a real
+# project.
+p23 = ["packaging<24"]
+p24 = ["packaging>=24"]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.uv]
+# Declare the conflict so uv refuses to resolve both extras at once.
+conflicts = [
+    [{extra = "p23"}, {extra = "p24"}],
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.sdist]
+exclude = [".venv-*"]
