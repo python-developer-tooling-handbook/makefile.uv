@@ -69,47 +69,10 @@ run_example() {
         make format
         make typecheck
 
-        log "$name: LOG_DIR captures per-env output"
-        make clean
-        make LOG_DIR=.logs test-py3.12
-        [ -f .logs/py3.12.log ] || die "$name: LOG_DIR not written"
-        grep -q "passed" .logs/py3.12.log || die "$name: LOG_DIR has no test output"
-
         log "$name: clean refuses empty UV_VENV_PREFIX"
         if make UV_VENV_PREFIX='' clean >/dev/null 2>&1; then
             die "$name: clean should have rejected empty UV_VENV_PREFIX"
         fi
-
-        log "$name: clean refuses absolute LOG_DIR"
-        # Pick an absolute path the current OS won't mangle. Git Bash
-        # under MSYS/MINGW rewrites plain POSIX paths like /tmp/nope to
-        # a Windows path before Make sees them, so on Windows we pass a
-        # drive-letter path directly.
-        case "$(uname -s)" in
-            MINGW*|MSYS*|CYGWIN*) abs_logdir='C:/nope' ;;
-            *)                    abs_logdir='/tmp/nope' ;;
-        esac
-        if make LOG_DIR="$abs_logdir" clean >/dev/null 2>&1; then
-            die "$name: clean should have rejected absolute LOG_DIR ('$abs_logdir')"
-        fi
-
-        log "$name: clean refuses path-traversal UV_VENV_PREFIX"
-        for bad_prefix in '.' '..' '../foo' 'foo/../bar' '/abs'; do
-            if make UV_VENV_PREFIX="$bad_prefix" clean >/dev/null 2>&1; then
-                die "$name: clean should have rejected UV_VENV_PREFIX='$bad_prefix'"
-            fi
-        done
-
-        log "$name: clean refuses shell-metachar UV_VENV_PREFIX"
-        # Use values that survive Make's own variable expansion literally.
-        # `$foo` on the command line is treated by Make as `$(f)oo` — never
-        # reaches the recipe — so that isn't a realistic threat vector.
-        # These, however, pass through Make untouched:
-        for bad_prefix in '.venv;rm' '.venv foo' '.venv"x'; do
-            if make UV_VENV_PREFIX="$bad_prefix" clean >/dev/null 2>&1; then
-                die "$name: clean should have rejected UV_VENV_PREFIX='$bad_prefix'"
-            fi
-        done
     fi
 
     # Guard: bash 3.2 (macOS default) treats empty-array expansion as unbound

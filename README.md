@@ -12,7 +12,7 @@ Inspired by [sio/Makefile.venv](https://github.com/sio/Makefile.venv).
 From your project root, pull a tagged version:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.2.5/Makefile.uv -o Makefile.uv
+curl -sSL https://raw.githubusercontent.com/python-developer-tooling-handbook/makefile.uv/v0.3.0/Makefile.uv -o Makefile.uv
 ```
 
 Then, in your project's `Makefile`:
@@ -48,9 +48,9 @@ $ make help
 ## Variables
 
 Override any variable *before* `include Makefile.uv` — in your Makefile, via
-`make VAR=…`, or in the environment. Most use `?=` so assignments stick on the
-first definition; `LINT` is special-cased so Makefile.uv's default wins over
-Make's built-in `LINT = lint` while still deferring to any user override.
+`make VAR=…`, or in the environment. Most use `?=`; `LINT` is special-cased
+so Makefile.uv's default beats Make's built-in `LINT = lint` while still
+deferring to any user override.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -61,10 +61,9 @@ Make's built-in `LINT = lint` while still deferring to any user override.
 | `LINT` | `ruff check` | Lint command |
 | `FORMAT` | `ruff format` | Format command (modifies files; set to `ruff format --check` for CI) |
 | `TYPECHECK` | `mypy` | Type-check command (set to `ty check` to switch to ty) |
-| `UV_VENV_PREFIX` | `.venv-` | Directory prefix for per-version venvs. Must be non-empty — `clean` refuses an empty value. |
+| `UV_VENV_PREFIX` | `.venv-` | Directory prefix for per-version venvs. Must be non-empty. |
 | `UV_SYNC_FLAGS` | (empty) | Extra flags forwarded to `uv sync` |
 | `UV_RUN_FLAGS` | (empty) | Extra flags forwarded to every `uv run` (e.g. `--extra cli`, `--group test`, `--with ipython`) |
-| `LOG_DIR` | (empty) | If set, `test-py<VER>` and `test-cell-py<VER>-<VAR>` tee output to `$(LOG_DIR)/py<VER>.log` / `cell-<VER>-<VAR>.log`. Must be relative — `clean` refuses absolute paths. |
 
 ## Targets
 
@@ -72,14 +71,14 @@ Make's built-in `LINT = lint` while still deferring to any user override.
 |---|---|
 | `sync` | `uv sync $(UV_SYNC_FLAGS)` |
 | `test` | `uv run $(PYTEST)` in the default venv |
-| `test-py<VER>` | Run pytest on Python `<VER>` in `$(UV_VENV_PREFIX)<VER>` |
+| `test-py<VER>` | Run `$(PYTEST)` on Python `<VER>` in `$(UV_VENV_PREFIX)<VER>` |
 | `test-all` | `test-py<VER>` for each version in `PYTHON_VERSIONS` |
 | `matrix` | Run every Python × `DEP_VARIANTS` cell |
 | `test-cell-py<VER>-<VAR>` | Run one matrix cell |
 | `lint` | `uv run $(LINT)` |
 | `format` | `uv run $(FORMAT)` |
 | `typecheck` | `uv run $(TYPECHECK)` |
-| `clean` | Remove `.venv`, `$(UV_VENV_PREFIX)*`, `dist`, `*.egg-info`, `.pytest_cache`, and `$(LOG_DIR)` |
+| `clean` | Remove `.venv`, `$(UV_VENV_PREFIX)*`, `dist`, `*.egg-info`, `.pytest_cache` |
 | `help` | Print targets and current variable values |
 
 ## The 2-axis matrix
@@ -112,9 +111,9 @@ Each uses its own `$(UV_VENV_PREFIX)cell-<VER>-<VAR>` venv.
 
 ### Using PEP 735 dependency groups instead of extras
 
-Set `DEP_MODE := group` to use `[dependency-groups]` (PEP 735) variants. The
-main tradeoff: groups are dev-only and don't pollute `pip install foo[…]`, so
-they fit "with feature X vs baseline" axes more naturally than extras do.
+Set `DEP_MODE := group` to use `[dependency-groups]` (PEP 735) variants. Groups
+are dev-only and don't pollute `pip install foo[…]`, so they fit "with feature
+X vs baseline" axes more naturally than extras do.
 
 ```toml
 [dependency-groups]
@@ -134,20 +133,6 @@ DEP_MODE     := group
 include Makefile.uv
 ```
 
-## Per-environment logs
-
-Set `LOG_DIR` to have each version and cell tee its output to a file alongside
-the stdout stream:
-
-```console
-$ make LOG_DIR=.logs test-all
-$ ls .logs
-py3.11.log  py3.12.log  py3.13.log  py3.14.log
-```
-
-Useful when running under `make -j` in parallel: the tee'd files preserve each
-env's output untangled, while `make clean` sweeps them.
-
 ## Gotchas
 
 - **Per-version venvs use disk.** Four Python versions × two variants = eight
@@ -162,17 +147,12 @@ env's output untangled, while `make clean` sweeps them.
   [tool.hatch.build.targets.sdist]
   exclude = [".venv-*", ".tox"]
   ```
-- **Collisions with your own `test` target** resolve by Make's "later definition
-  wins" rule. Delete your version and adopt the included one, or rename yours.
-- **Don't put pattern-matched targets in your own `.PHONY`** line — Make will
-  then refuse to pattern-match them. `Makefile.uv` handles its own `.PHONY`
-  internally; leave the generated `test-py<VER>` and `test-cell-py<VER>-<VAR>`
-  names out of yours.
 - **Native-Windows `cmd`/`powershell` aren't supported.** The matrix cell
-  recipe uses POSIX-shell tools (`cut`, positional-parameter interpolation);
-  none of that works in `cmd` or `powershell`. On Windows, use Git Bash
-  (ships with Git for Windows) or WSL; `make` itself can be installed via
-  `choco install make`.
+  recipe uses POSIX-shell tools (`cut`, positional-parameter interpolation).
+  On Windows, use Git Bash (ships with Git for Windows) or WSL; `make` itself
+  can be installed via `choco install make`.
+- **Capturing per-env output:** pipe it yourself. `make test-py3.12 2>&1 | tee py3.12.log`
+  or `make -j4 test-all --output-sync=target` both work.
 
 ## Examples
 
@@ -186,20 +166,15 @@ env's output untangled, while `make clean` sweeps them.
 ## Compatibility
 
 - GNU Make 3.81+ (macOS's default `/usr/bin/make` works).
-- Bash is required only when `LOG_DIR` is in use. The `LOG_DIR` tee'd recipes
-  depend on `set -o pipefail` to preserve non-zero exit codes through the pipe;
-  dash (Ubuntu's `/bin/sh`) doesn't support that. `Makefile.uv` upgrades
-  `SHELL` to `/bin/bash` only when both `LOG_DIR` is set and `SHELL` is still
-  at the POSIX default `/bin/sh`; in any other configuration the host
-  project's shell is left alone. Without `LOG_DIR`, every recipe is plain
-  POSIX sh.
 - uv 0.4+.
 - macOS, Linux, and Windows (via Git Bash or WSL). Tested in CI on
   `ubuntu-latest`, `macos-latest`, and `windows-latest`.
 
 ## Roadmap
 
-- **v0.3** — `Taskfile.uv.yml` and `justfile.uv` companions with the same API.
+- **v0.3** — (this release) simplified surface area; dropped `LOG_DIR`
+  per-env log capture in favor of users piping through `tee` themselves.
+- **v0.4** — `Taskfile.uv.yml` and `justfile.uv` companions with the same API.
 - **v1.0** — Variable and target names freeze as stable.
 
 ## License

@@ -2,49 +2,26 @@
 # Homepage: https://github.com/python-developer-tooling-handbook/makefile.uv
 # License: MIT
 
-# LOG_DIR tees recipe output through `tee` and relies on `set -o pipefail`
-# to preserve non-zero exit codes through the pipe. pipefail is a bash-ism;
-# dash (Ubuntu's /bin/sh) doesn't support it. Upgrade SHELL to /bin/bash
-# only when LOG_DIR is in use, so projects that don't use the feature
-# don't get their recipe shell changed out from under them. If the user
-# has explicitly chosen a dash-like shell AND opted into LOG_DIR, fail
-# early with a clear message instead of letting the recipe produce a
-# cryptic `set: Illegal option -o pipefail`.
-ifneq ($(LOG_DIR),)
-ifeq ($(SHELL),/bin/sh)
-SHELL := /bin/bash
-endif
-# Basename-match so we don't false-positive on paths like
-# /home/dash-user/bin/bash or /opt/bash-from-dash/bash.
-ifeq ($(notdir $(SHELL)),dash)
-$(error Makefile.uv: LOG_DIR requires a shell with `set -o pipefail` support (bash, zsh, ksh). SHELL=$(SHELL) is dash. Unset LOG_DIR or set SHELL to a bash-compatible shell before the include.)
-endif
-endif
-
 PYTHON_VERSIONS ?= 3.11 3.12 3.13 3.14
 DEP_VARIANTS    ?=
 DEP_MODE        ?= extra
 PYTEST          ?= pytest
+FORMAT          ?= ruff format
+TYPECHECK       ?= mypy
+UV_VENV_PREFIX  ?= .venv-
+UV_SYNC_FLAGS   ?=
+UV_RUN_FLAGS    ?=
 
-# LINT is a GNU Make built-in (`lint`), so a plain `?=` would see it as
-# already defined and skip our default. Force-set our default only when
-# LINT's origin is the built-in; fall through to ?= otherwise so user
-# overrides (origin = file / command line / environment) still win.
+# LINT is a GNU Make built-in (`lint`); plain `?=` would see it as already
+# defined. Force-set our default when it's still the built-in; fall through
+# to ?= so user overrides still win.
 ifeq ($(origin LINT),default)
 LINT := ruff check
 endif
 LINT            ?= ruff check
-FORMAT          ?= ruff format
-TYPECHECK       ?= mypy
 
-UV_VENV_PREFIX  ?= .venv-
-UV_SYNC_FLAGS   ?=
-UV_RUN_FLAGS    ?=
-LOG_DIR         ?=
-
-# Force-rebuild helper. Empty phony target used as a prereq on pattern
-# rules (test-py%, test-cell-py%) so Make always runs the recipe — even
-# if a file or directory happens to share the target's name.
+# Pattern rules use FORCE as a prereq so a file sharing the target name
+# (e.g. accidentally `touch test-py3.12`) can't fool Make into skipping it.
 .PHONY: sync test test-all matrix lint format typecheck clean help FORCE
 FORCE:
 
@@ -54,32 +31,20 @@ sync:
 test:
 	uv run $(UV_RUN_FLAGS) $(PYTEST)
 
-# test-py<VER>: run pytest against a specific Python in its own venv.
-# Stem is the Python version (e.g., "3.12"). UV_RUN_FLAGS lets callers
-# forward --extra/--group/--with to the implicit sync `uv run` does when
-# the version venv doesn't yet exist. LOG_DIR, if set, also tees output
-# to $(LOG_DIR)/py<VER>.log for post-hoc inspection.
 test-py%: FORCE
-	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
-	$(if $(LOG_DIR),set -o pipefail; )UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)$*" uv run --python "$*" $(UV_RUN_FLAGS) $(PYTEST)$(if $(LOG_DIR), 2>&1 | tee -- "$(LOG_DIR)/py$*.log")
+	UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)$*" uv run --python "$*" $(UV_RUN_FLAGS) $(PYTEST)
 
 test-all: $(foreach v,$(PYTHON_VERSIONS),test-py$(v))
 
-# 2-axis matrix: Python × DEP_VARIANTS. No-op when DEP_VARIANTS is empty.
-# DEP_MODE chooses how variants are applied to `uv run`: "extra" (default)
-# forwards --extra NAME (PEP 621 [project.optional-dependencies]); "group"
-# forwards --group NAME (PEP 735 [dependency-groups]).
 matrix: $(foreach py,$(PYTHON_VERSIONS),$(foreach var,$(DEP_VARIANTS),test-cell-py$(py)-$(var)))
 
-# test-cell-py<VER>-<VAR>: one cell of the matrix. Stem is "<VER>-<VAR>".
-# -f2- (not -f2) so variant names may themselves contain dashes, e.g.
-# "with-chardet" / "django-5".
+# DEP_MODE selects --extra (PEP 621 optional-dependencies, the default) or
+# --group (PEP 735 dependency-groups). cut -f2- so variant names may contain
+# dashes (e.g. "with-chardet", "django-5").
 test-cell-py%: FORCE
-	@if [ -n "$(LOG_DIR)" ]; then mkdir -p -- "$(LOG_DIR)"; fi
 	@PY=$$(echo "$*" | cut -d- -f1); VAR=$$(echo "$*" | cut -d- -f2-); \
-	  $(if $(LOG_DIR),set -o pipefail; )\
 	  UV_PROJECT_ENVIRONMENT="$(UV_VENV_PREFIX)cell-$*" \
-	  uv run --python "$$PY" --$(DEP_MODE) "$$VAR" $(UV_RUN_FLAGS) $(PYTEST)$(if $(LOG_DIR), 2>&1 | tee -- "$(LOG_DIR)/cell-$*.log")
+	  uv run --python "$$PY" --$(DEP_MODE) "$$VAR" $(UV_RUN_FLAGS) $(PYTEST)
 
 lint:
 	uv run $(UV_RUN_FLAGS) $(LINT)
@@ -90,66 +55,31 @@ format:
 typecheck:
 	uv run $(UV_RUN_FLAGS) $(TYPECHECK)
 
-# `clean` has to defend against hostile or mistaken variable values. Both
-# UV_VENV_PREFIX and LOG_DIR flow directly into `rm -rf`, so we validate
-# them against a conservative allowlist before globbing:
-#   - non-empty (UV_VENV_PREFIX only; empty LOG_DIR just means "no logs")
-#   - not absolute (reject /..., [A-Za-z]:..., \...)
-#   - not `.` or `..`
-#   - does not contain `..` anywhere
-#   - characters restricted to [A-Za-z0-9._/-]  (blocks $ ` spaces quotes)
-# POSIX character class `[!...]` is used rather than bash-only `[^...]`
-# so the recipe works even when SHELL is dash.
+# Empty UV_VENV_PREFIX would make "$(UV_VENV_PREFIX)"* expand to * and wipe
+# cwd. -- stops rm from reading any glob match as a flag.
 clean:
-	@bad() { printf 'clean: %s\n' "$$1" >&2; exit 1; }; \
-	validate() { \
-	    name=$$1; val=$$2; allow_empty=$$3; \
-	    if [ -z "$$val" ]; then \
-	        [ "$$allow_empty" = "yes" ] && return 0; \
-	        bad "$$name is empty — refusing (would glob cwd)"; \
-	    fi; \
-	    case "$$val" in \
-	        /*|[A-Za-z]:*|\\*)       bad "$$name ('$$val') is absolute" ;; \
-	        "."|"..")                 bad "$$name ('$$val') refers to cwd/parent" ;; \
-	        *..*)                     bad "$$name ('$$val') contains '..'" ;; \
-	        *[!A-Za-z0-9._/-]*)       bad "$$name ('$$val') contains characters outside [A-Za-z0-9._/-]" ;; \
-	    esac; \
-	}; \
-	validate UV_VENV_PREFIX "$(UV_VENV_PREFIX)" no; \
-	validate LOG_DIR "$(LOG_DIR)" yes
+	@test -n "$(UV_VENV_PREFIX)" || { echo "clean: UV_VENV_PREFIX is empty — refusing." >&2; exit 1; }
 	rm -rf -- .venv "$(UV_VENV_PREFIX)"* dist *.egg-info .pytest_cache
-	@if [ -n "$(LOG_DIR)" ]; then rm -rf -- "$(LOG_DIR)"; fi
-
-# Shell-quote a value for display: wrap in '...' and replace any embedded
-# single quote with '"'"' so arbitrary variable values (including ones
-# containing quotes, $, or backticks) render literally in `make help`.
-sq = '$(subst ','"'"',$(1))'
 
 help:
-	@printf '%s\n' \
-	  'Makefile.uv targets:' \
-	  '  sync                    uv sync $$(UV_SYNC_FLAGS)' \
-	  '  test                    uv run $$(PYTEST)' \
-	  '  test-py<VER>            run pytest on Python <VER> in a dedicated venv' \
-	  '  test-all                test-py<VER> for each version in PYTHON_VERSIONS' \
-	  '  matrix                  Python × DEP_VARIANTS cells (empty DEP_VARIANTS = no-op)' \
-	  '  test-cell-py<VER>-<VAR> run one matrix cell' \
-	  '  lint                    uv run $$(LINT)' \
-	  '  format                  uv run $$(FORMAT)' \
-	  '  typecheck               uv run $$(TYPECHECK)' \
-	  '  clean                   remove venvs, build artifacts, and $$(LOG_DIR)' \
-	  '  help                    this message' \
-	  '' \
-	  "Variables (current values; set before 'include Makefile.uv' to override):"
-	@printf '  %-15s = %s\n' \
-	  'PYTHON_VERSIONS' $(call sq,$(PYTHON_VERSIONS)) \
-	  'DEP_VARIANTS'    $(call sq,$(DEP_VARIANTS)) \
-	  'DEP_MODE'        $(call sq,$(DEP_MODE)) \
-	  'PYTEST'          $(call sq,$(PYTEST)) \
-	  'LINT'            $(call sq,$(LINT)) \
-	  'FORMAT'          $(call sq,$(FORMAT)) \
-	  'TYPECHECK'       $(call sq,$(TYPECHECK)) \
-	  'UV_VENV_PREFIX'  $(call sq,$(UV_VENV_PREFIX)) \
-	  'UV_SYNC_FLAGS'   $(call sq,$(UV_SYNC_FLAGS)) \
-	  'UV_RUN_FLAGS'    $(call sq,$(UV_RUN_FLAGS)) \
-	  'LOG_DIR'         $(call sq,$(LOG_DIR))
+	@echo "Makefile.uv targets:"
+	@echo "  sync                    uv sync"
+	@echo "  test                    uv run \$$(PYTEST)"
+	@echo "  test-py<VER>            run \$$(PYTEST) on Python <VER> in a dedicated venv"
+	@echo "  test-all                test-py<VER> for each version in PYTHON_VERSIONS"
+	@echo "  matrix                  Python × DEP_VARIANTS cells (DEP_VARIANTS empty = no-op)"
+	@echo "  test-cell-py<VER>-<VAR> run one matrix cell"
+	@echo "  lint / format / typecheck  run \$$(LINT) / \$$(FORMAT) / \$$(TYPECHECK)"
+	@echo "  clean                   remove venvs and build artifacts"
+	@echo ""
+	@echo "Variables (set before 'include Makefile.uv' to override):"
+	@echo "  PYTHON_VERSIONS = $(PYTHON_VERSIONS)"
+	@echo "  DEP_VARIANTS    = $(DEP_VARIANTS)"
+	@echo "  DEP_MODE        = $(DEP_MODE)"
+	@echo "  PYTEST          = $(PYTEST)"
+	@echo "  LINT            = $(LINT)"
+	@echo "  FORMAT          = $(FORMAT)"
+	@echo "  TYPECHECK       = $(TYPECHECK)"
+	@echo "  UV_VENV_PREFIX  = $(UV_VENV_PREFIX)"
+	@echo "  UV_SYNC_FLAGS   = $(UV_SYNC_FLAGS)"
+	@echo "  UV_RUN_FLAGS    = $(UV_RUN_FLAGS)"
