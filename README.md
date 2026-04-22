@@ -1,8 +1,13 @@
-# Makefile.uv
+<p align="center">
+  <img src="logo.png" alt="Makefile.uv" width="500">
+</p>
 
-A reusable, include-based Makefile that gives any Python project a
-[uv](https://docs.astral.sh/uv/)-backed test orchestration layer. Companion
-to the [Python Developer Tooling Handbook](https://pydevtools.com/).
+<p align="center">
+  A reusable, include-based Makefile that gives any Python project a
+  <a href="https://docs.astral.sh/uv/">uv</a>-backed test orchestration
+  layer. Companion to the
+  <a href="https://pydevtools.com/">Python Developer Tooling Handbook</a>.
+</p>
 
 This README is organized around the
 [Diátaxis](https://diataxis.fr/) documentation framework:
